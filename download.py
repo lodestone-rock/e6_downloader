@@ -105,9 +105,8 @@ def save_webp_without_alpha(image: Image.Image, filepath: str, quality: Union[in
             where higher values indicate higher quality and larger file sizes. If None, the default quality
             of 80 will be used. Defaults to None.
     """
-    # Remove alpha channel if it exists
-    if image.mode.endswith('A'):
-        image = image.convert(image.mode[:-1])
+    # Remove alpha channel
+    image = image.convert('RGB')
 
     # Save the image as WebP format
     image.save(filepath, format='WebP', quality=quality)
