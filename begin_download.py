@@ -9,13 +9,15 @@ import gc
 
 
 # constant variable, extract this out please
-current_dir = "/home/hanif/temp_project/e6_downloader"
-filename = "posts-2023-04-17.csv"
-save_path = "e6_dump"
-save_path = os.path.join(current_dir, save_path)
-number_of_workers = 15
-numb_of_threads_each_worker = 12
+current_dir = os.getcwd()
+filename = "posts-2023-05-10.csv"
+save_path = "/home/user/project-fur/e6_dump/almost_all_e6_dataset"
+# save_path = os.path.join(current_dir, save_path)
+number_of_workers = 80
+numb_of_threads_each_worker = 5
 excluded_tags = ["cub", "gore", "animated"]
+do_download = True
+check_integrity = True
 
 
 # wrap in function so the gc can collect stuff
@@ -42,7 +44,8 @@ def filter():
     # remove legally / politically concerning data
     for excluded_tag in excluded_tags:
         data_currated = data_currated[
-            data_currated["tag_lists"].apply(is_contain, text=excluded_tag) == False
+            data_currated["tag_lists"].apply(
+                is_contain, text=excluded_tag) == False
         ]
 
     data_currated = data_currated[["md5", "file_ext"]]
@@ -51,10 +54,9 @@ def filter():
 
 def download(dataset: pd.DataFrame, save_path: str):
     for index, sample in dataset.iterrows():
-        print(index)
 
         attempt = 0
-        while attempt < 2:
+        while attempt < 5:
             try:
                 # generate url
                 file_ext = sample["file_ext"]
@@ -125,32 +127,34 @@ def check_error(filename: str) -> list:
 
 def main():
     data_currated = filter()
-    gc.collect()
-    split_df = split_dataframe(data_currated, number_of_workers)
-    del data_currated
+    if do_download:
+        gc.collect()
+        split_df = split_dataframe(data_currated, number_of_workers)
+        del data_currated
 
-    args = [(df,) + (save_path,) + (numb_of_threads_each_worker,) for df in split_df]
+        args = [(df,) + (save_path,) + (numb_of_threads_each_worker,)
+                for df in split_df]
 
-    with multiprocessing.Pool(processes=number_of_workers) as pool:
-        results = pool.starmap(multithread_download, args)
-        print(results)
+        with multiprocessing.Pool(processes=number_of_workers) as pool:
+            results = pool.starmap(multithread_download, args)
 
     # check integrity
-    list_image = os.listdir(save_path)
-    list_image = [os.path.join(save_path, image) for image in list_image]
+    if check_integrity:
+        list_image = os.listdir(save_path)
+        list_image = [os.path.join(save_path, image) for image in list_image]
 
-    with multiprocessing.Pool(processes=number_of_workers) as pool:
-        results = pool.map(check_error, list_image)
-        print(results)
+        with multiprocessing.Pool(processes=number_of_workers) as pool:
+            results = pool.map(check_error, list_image)
+            print(results)
 
-    flat_list = []
-    for sublist in results:
-        for element in sublist:
-            flat_list.append(element)
+        flat_list = []
+        for sublist in results:
+            for element in sublist:
+                flat_list.append(element)
 
-    broken_image = [text.split("/")[-1] for text in flat_list]
-    broken_image = [md5.split(".")[0] for md5 in broken_image]
-    print(broken_image)
+        broken_image = [text.split("/")[-1] for text in flat_list]
+        broken_image = [md5.split(".")[0] for md5 in broken_image]
+        print(broken_image)
 
 
 main()
