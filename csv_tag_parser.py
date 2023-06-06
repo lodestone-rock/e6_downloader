@@ -5,8 +5,8 @@ import os
 # global var
 
 # debug mode
-debug = True
-tag_index_test = True
+debug = False
+tag_index_test = False
 debug_random_seed = 42
 enable_tag_threshold = False
 # set this to 0 if you want to keep everything
