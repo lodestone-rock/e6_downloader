@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import numpy as np
 
 
 # global var
@@ -8,18 +9,32 @@ import os
 debug = False
 tag_index_test = False
 debug_random_seed = 42
-enable_tag_threshold = False
+enable_tag_threshold = True
 # set this to 0 if you want to keep everything
 low_tag_count_threshold = 10
-low_artist_post_count_threshold = 10
+low_artist_post_count_threshold = 2
+dropped_data_because_of_this_tags = ["cub", "gore", "animated"]
+
 stripped_meta_tags = [
     "description",
     "text",
     "audio",
     "version",
-    "\d+:\d+",
-    "^\d{4}$",
-    r"\bsource\b",
+    "\d+:\d+",  # aspect ratio `12:23`
+    "^\d{4}$",  # year `xxxx`
+    r"\bsource\b",  # `bigger version at source`
+]
+
+fav_binning = [
+    "popularity 1",
+    "popularity 2",
+    "popularity 3",
+    "popularity 4",
+    "popularity 5",
+    "popularity 6",
+    "popularity 7",
+    "popularity 8",
+    "popularity 9",
 ]
 
 
@@ -107,15 +122,18 @@ def main():
     current_dir = os.getcwd()
 
     # tags
-    tag_lut_dir = os.path.join(current_dir, "tags-2023-05-10.csv")
+    tag_lut_dir = os.path.join(current_dir, "tags-2023-06-05.csv.gz")
     tag_lut = pd.read_csv(tag_lut_dir)
 
     # e6 db dump
-    e6_dump = os.path.join(current_dir, "posts-2023-05-10.parquet")
-    e6_dump = pd.read_parquet(e6_dump)
+    e6_dump = os.path.join(current_dir, "posts-2023-06-05.csv.gz")
+    e6_dump = pd.read_csv(e6_dump)
 
     if debug:
         e6_dump = e6_dump.sample(n=10**4, random_state=debug_random_seed)
+
+    # na guard
+    e6_dump = e6_dump.dropna(subset=["tag_string"])
 
     # strip underscores and convert tag string into a list of tags for each post
     e6_dump = separate_tag_string_as_comma_separated(df=e6_dump, tag_col="tag_string")
@@ -202,7 +220,63 @@ def main():
     # concat as new column so the original column stays and can be used for cross checking
     e6_dump = pd.concat([e6_dump, index_to_tag], axis=1)
 
-    print()
+    e6_dump = e6_dump.dropna(subset=["new_tag_string"])
+    # ===[tag nsfw for nsfw post]=== #
+    e6_dump.loc[e6_dump["rating"] == "e", "new_tag_string"] = e6_dump.loc[
+        e6_dump["rating"] == "e", "new_tag_string"
+    ].apply(lambda x: ["nsfw"] + x)
+
+    # ===[tag e621]=== #
+    e6_dump["new_tag_string"] = e6_dump["new_tag_string"].apply(lambda x: ["e621"] + x)
+
+    # ===[check if tags are being mapped properly]=== #
+    see_stripped_tags_stat = (
+        (
+            e6_dump["tag_string"].apply(lambda x: set(x))
+            - e6_dump["new_tag_string"].apply(lambda x: set(x))
+        )
+        .apply(lambda x: len(x))
+        .describe()
+    )
+
+    # ===[popularity binning]=== #
+    # scrapping this for now !
+
+    # # log scaling because the data is highly skewed
+    # e6_dump['log_transformed_fav_count'] = np.log(e6_dump['fav_count'] + 0.0001)
+
+    # # normalize
+    # e6_dump['standardized_fav_count'] = (e6_dump['log_transformed_fav_count'] - e6_dump['log_transformed_fav_count'].mean()) / e6_dump['log_transformed_fav_count'].std()
+
+    # # Create a histogram using the 'Values' column
+    # hist, bins = np.histogram(e6_dump['standardized_fav_count'], bins=9)
+
+    # # Convert the histogram into a categorical column
+    # # e6_dump['fav_count_bin'] = pd.cut(e6_dump['fav_count'], bins=bins, labels=fav_binning)
+    # # apparently pandas has bug in their binning code replacing it with other alternatives
+    # digitize_bin = np.digitize(e6_dump['standardized_fav_count'], bins=bins)
+    # e6_dump['fav_count_bin'] =  pd.Series(digitize_bin)
+
+    # import matplotlib.pyplot as plt
+
+    # histogram2 = e6_dump['fav_count_bin'].hist(bins=9, grid=False, edgecolor='black')
+    # plt.savefig('histogram.png')
+
+    # remove legally / politically concerning data
+
+    # a fucntion to be applied (should be lambda function but oh well)
+    def is_contain(list_str: list, text: str) -> bool:
+        """check whether the text is exist in a list"""
+        return text in list_str
+
+    for excluded_tag in dropped_data_because_of_this_tags:
+        e6_dump_censored = e6_dump[
+            e6_dump["tag_string"].apply(is_contain, text=excluded_tag) == False
+        ]
+
+    e6_dump_censored.to_parquet("e6_dump.parquet")
+    e6_dump.to_parquet("e6_dump_uncensored.parquet")
+    print(see_stripped_tags_stat)
 
 
 main()
